@@ -151,6 +151,9 @@ EASYSEARCH_PASSWORD='<你的 Easysearch 密码>' \
 mvn spring-boot:run -Dspring-boot.run.profiles=dashscope
 ```
 
+注意：profile 名称必须精确写成 `dashscope`，不要误写成 `dashscop` 或其他变体，否则
+`application-dashscope.yml` 不会生效，启动时会出现 OpenAI credential 相关报错。
+
 `dashscope` profile 会关闭 `StubEmbeddingModel`，改用 Spring AI 自动装配的 OpenAI-compatible
 `EmbeddingModel`，模型为 `text-embedding-v4`，向量维度为 `256`。
 该 profile 使用独立索引 `spring-ai-easysearch-demo-dashscope`，避免和默认 384 维 stub 索引冲突。
@@ -222,6 +225,13 @@ curl -G 'http://localhost:8080/api/search' \
 
 > 使用默认 `StubEmbeddingModel` 时，结果只能证明链路可用；启用 `dashscope` profile 后，
 > 文本会通过阿里云 DashScope `text-embedding-v4` 向量化，查询结果才具备真实语义相近性。
+
+补充说明：
+
+- `metadata.topic`、`metadata.type` 是写入文档时的业务 metadata
+- `metadata.distance` 是 `spring-ai-easysearch-vectorstore` 在查询结果返回时补充的派生字段，
+  当前 demo 的 `cosine` 模式下近似等于 `1 - score`
+- `score` 越大越相似，`distance` 越小越接近
 
 ## 换成真实 Embedding
 
@@ -297,6 +307,16 @@ elasticsearch.api_compatibility_version: "8.19.17"
 **启动时认证失败**
 
 确认 `EASYSEARCH_PASSWORD` 环境变量和 Easysearch `admin` 用户密码一致。
+
+**启动时报 `At least one credential source must be specified`**
+
+先确认两件事：
+
+1. 启动命令里已经传入 `DASHSCOPE_API_KEY`
+2. `-Dspring-boot.run.profiles=dashscope` 里的 profile 名称没有拼错
+
+如果 profile 没有精确命中 `dashscope`，`application-dashscope.yml` 不会加载，Spring AI OpenAI starter
+就拿不到 `spring.ai.openai.api-key`。
 
 ## 安全说明
 
