@@ -1,0 +1,6 @@
+target/
+.idea/
+*.iml
+DEMO_SCRIPT.md
+
+.DS_Store

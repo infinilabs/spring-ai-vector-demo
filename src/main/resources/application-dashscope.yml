@@ -1,0 +1,21 @@
+# 启用方式：
+#   DASHSCOPE_API_KEY='<你的 DashScope API Key>' \
+#   EASYSEARCH_PASSWORD='<你的 Easysearch 密码>' \
+#   mvn spring-boot:run -Dspring-boot.run.profiles=dashscope
+#
+# DashScope compatible-mode 使用 OpenAI 兼容协议，Spring AI 通过 openai starter 自动装配 EmbeddingModel。
+spring:
+  ai:
+    model:
+      embedding: openai
+    openai:
+      api-key: ${DASHSCOPE_API_KEY}
+      embedding:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        options:
+          model: text-embedding-v4
+          dimensions: 256
+    vectorstore:
+      easysearch:
+        index-name: spring-ai-easysearch-demo-dashscope
+        dimensions: 256
