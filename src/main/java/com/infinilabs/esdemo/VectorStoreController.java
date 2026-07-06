@@ -52,15 +52,14 @@ public class VectorStoreController {
 
 	private final EasysearchClient easysearchClient;
 
-	private final ObjectMapper objectMapper;
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private final String indexName;
 
-	public VectorStoreController(VectorStore vectorStore, EasysearchClient easysearchClient, ObjectMapper objectMapper,
-				@Value("${spring.ai.vectorstore.easysearch.index-name}") String indexName) {
+	public VectorStoreController(VectorStore vectorStore, EasysearchClient easysearchClient,
+			@Value("${spring.ai.vectorstore.easysearch.index-name}") String indexName) {
 		this.vectorStore = vectorStore;
 		this.easysearchClient = easysearchClient;
-		this.objectMapper = objectMapper;
 		this.indexName = indexName;
 	}
 

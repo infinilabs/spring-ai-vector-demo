@@ -1,5 +1,6 @@
 # 启用方式：
 #   DASHSCOPE_API_KEY='<你的 DashScope API Key>' \
+#   EASYSEARCH_SCHEME=https \
 #   EASYSEARCH_PASSWORD='<你的 Easysearch 密码>' \
 #   mvn spring-boot:run -Dspring-boot.run.profiles=dashscope
 #

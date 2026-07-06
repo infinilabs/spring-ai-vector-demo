@@ -1,9 +1,15 @@
 package com.infinilabs.esdemo;
 
+import java.security.cert.X509Certificate;
+import java.util.Locale;
+
+import javax.net.ssl.SSLContext;
+
 import com.infinilabs.clients.easysearch.EasysearchClient;
 import com.infinilabs.clients.json.jackson.JacksonJsonpMapper;
 import com.infinilabs.clients.transport.EasysearchTransport;
 import com.infinilabs.clients.transport.rest_client.RestClientTransport;
+
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -16,14 +22,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import javax.net.ssl.SSLContext;
-import java.security.cert.X509Certificate;
-
 /**
  * 自建 EasysearchClient（官方 easysearch-client，底层 Apache HC4 + org.easysearch.client.RestClient）。
  *
- * <p>不再使用 Spring Boot 的 Rest5Client auto-config。HTTPS 自签名：trust-all + 跳过主机名校验
- * （仅本地联调）。basic auth 从 {@code easysearch.*} 读取。
+ * <p>不再使用 Spring Boot 的 Rest5Client auto-config。basic auth 从 {@code easysearch.*} 读取。
+ * 当 scheme=https 时，为了本地联调方便会启用 trust-all + 跳过主机名校验。
  */
 @Configuration
 public class EasysearchClientConfig {
@@ -34,6 +37,9 @@ public class EasysearchClientConfig {
 	@Value("${easysearch.port:9200}")
 	private int port;
 
+	@Value("${easysearch.scheme:https}")
+	private String scheme;
+
 	@Value("${easysearch.username}")
 	private String username;
 
@@ -42,19 +48,32 @@ public class EasysearchClientConfig {
 
 	@Bean(destroyMethod = "close")
 	public RestClient restClient() throws Exception {
-		SSLContext sslContext = SSLContextBuilder.create()
-			.loadTrustMaterial(null, (X509Certificate[] chain, String authType) -> true)
-			.build();
-		SSLIOSessionStrategy sessionStrategy = new SSLIOSessionStrategy(sslContext, NoopHostnameVerifier.INSTANCE);
+		String normalizedScheme = (this.scheme == null || this.scheme.isBlank()) ? "https"
+				: this.scheme.trim().toLowerCase(Locale.ROOT);
+		if (!"http".equals(normalizedScheme) && !"https".equals(normalizedScheme)) {
+			throw new IllegalArgumentException("`easysearch.scheme` must be `http` or `https`");
+		}
 
+		SSLIOSessionStrategy sslSessionStrategy = null;
+		if ("https".equals(normalizedScheme)) {
+			SSLContext sslContext = SSLContextBuilder.create()
+				.loadTrustMaterial(null, (X509Certificate[] chain, String authType) -> true)
+				.build();
+			sslSessionStrategy = new SSLIOSessionStrategy(sslContext, NoopHostnameVerifier.INSTANCE);
+		}
+
+		final SSLIOSessionStrategy finalSslSessionStrategy = sslSessionStrategy;
 		BasicCredentialsProvider credentialsProvider = new BasicCredentialsProvider();
 		credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials(username, password));
 
-		return RestClient.builder(new HttpHost(host, port, "https"))
-			.setHttpClientConfigCallback(httpClientBuilder -> httpClientBuilder
-				.setDefaultCredentialsProvider(credentialsProvider)
-				.setSSLStrategy(sessionStrategy)
-				.disableAuthCaching())
+		return RestClient.builder(new HttpHost(host, port, normalizedScheme))
+			.setHttpClientConfigCallback(httpClientBuilder -> {
+				httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider).disableAuthCaching();
+				if (finalSslSessionStrategy != null) {
+					httpClientBuilder.setSSLStrategy(finalSslSessionStrategy);
+				}
+				return httpClientBuilder;
+			})
 			.setRequestConfigCallback(requestConfigBuilder -> requestConfigBuilder
 				.setConnectTimeout(5000)
 				.setSocketTimeout(30000))
