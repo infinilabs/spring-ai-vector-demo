@@ -1,0 +1,26 @@
+# 启用方式：
+#   OLLAMA_API_KEY=ollama \
+#   OLLAMA_EMBEDDING_MODEL=bge-m3:latest \
+#   OLLAMA_EMBEDDING_DIMENSIONS=1024 \
+#   EASYSEARCH_SCHEME=http \
+#   EASYSEARCH_HOST=localhost \
+#   EASYSEARCH_PORT=9201 \
+#   EASYSEARCH_PASSWORD='<你的 Easysearch 密码>' \
+#   mvn spring-boot:run -Dspring-boot.run.profiles=ollama
+#
+# 当前 demo 继续使用 Spring AI 的 OpenAI-compatible EmbeddingModel，对接本地 Ollama 的
+# /v1/embeddings 接口，不额外引入 spring-ai-starter-model-ollama。
+spring:
+  ai:
+    model:
+      embedding: openai
+    openai:
+      api-key: ${OLLAMA_API_KEY:ollama}
+      embedding:
+        base-url: http://localhost:11434/v1
+        options:
+          model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:latest}
+    vectorstore:
+      easysearch:
+        index-name: ${OLLAMA_VECTOR_INDEX:spring-ai-easysearch-demo-ollama-bge-m3}
+        dimensions: ${OLLAMA_EMBEDDING_DIMENSIONS:1024}

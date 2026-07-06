@@ -19,7 +19,7 @@ import java.util.List;
  * <p><b>无语义</b>：不要用它评估检索质量。验证通过后可换成 Ollama / OpenAI 等真实 embedding。
  */
 @Component
-@Profile("!dashscope")
+@Profile("!dashscope & !ollama")
 public class StubEmbeddingModel implements EmbeddingModel {
 
     public static final int DIM = 384;

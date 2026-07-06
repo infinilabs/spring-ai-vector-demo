@@ -10,7 +10,7 @@
 
 1. `spring-ai-easysearch-vectorstore` 提供 Spring AI `VectorStore` 实现，把 Spring AI 标准调用适配到 Easysearch 原生 kNN。
 2. `spring-ai-vector-demo` 提供可运行应用，默认使用 `StubEmbeddingModel` 生成确定性向量；
-   启用 `dashscope` profile 时调用阿里云 DashScope `text-embedding-v4` 生成新闻标题向量。
+   启用 `dashscope` 或 `ollama` profile 时切换到真实 embedding 模型生成新闻标题向量。
 3. `VectorStore.add(...)` 把新闻标题、metadata 和向量写入 Easysearch。
 4. `spring-ai-vector-demo` 启动后直接调用 `VectorStore.similaritySearch(...)`，把查询文本向量化后，
    在 Easysearch 中做语义相近检索。
@@ -22,7 +22,7 @@
 > Maven Central:
 > `com.infinilabs:spring-ai-easysearch-vectorstore:2.3.0`
 > 本 demo 演示最常见的一种用法：auto-config + Spring AI `VectorStore` + Easysearch，
-> 默认 Stub embedding 可离线验证链路，`dashscope` profile 可调用阿里云文本嵌入做真实语义查询。
+> 默认 Stub embedding 可离线验证链路，`dashscope` / `ollama` profile 可切换到真实 embedding 做语义查询。
 
 ## Spring AI 标准用法
 
@@ -90,7 +90,8 @@ public class KnowledgeService {
 
 > 默认 embedding 用 `StubEmbeddingModel`（确定性假向量），**不依赖外部服务/Key，开箱即跑**。
 > 检索结果是 hash 相似（非真实语义）。如需真实语义，可启用 `dashscope` profile，
-> 通过 Spring AI 的 OpenAI-compatible `EmbeddingModel` 调用阿里云 DashScope。
+> 或 `ollama` profile，分别通过 Spring AI 的 OpenAI-compatible `EmbeddingModel` 调用阿里云 DashScope
+> 或本地 Ollama。
 > 为了演示稳定，小数据集默认使用 `model: exact`；大数据压测或近似召回演示时可改成 `lsh`。
 
 ## 全文搜索怎么调
@@ -243,6 +244,34 @@ SERVER_PORT=8080 \
 mvn spring-boot:run -Dspring-boot.run.profiles=dashscope
 ```
 
+如果你本地已经安装了 Ollama，并且已经拉取 `bge-m3:latest`，可以启用
+`ollama` profile。当前项目继续复用 Spring AI 的 OpenAI-compatible embedding 配置，
+对接 Ollama 的 `/v1/embeddings` 接口：
+
+```bash
+OLLAMA_API_KEY=ollama \
+OLLAMA_EMBEDDING_MODEL=bge-m3:latest \
+OLLAMA_EMBEDDING_DIMENSIONS=1024 \
+EASYSEARCH_PASSWORD='你的 Easysearch 密码' \
+EASYSEARCH_SCHEME=http \
+EASYSEARCH_HOST=localhost \
+EASYSEARCH_PORT=9201 \
+SERVER_PORT=8080 \
+mvn spring-boot:run -Dspring-boot.run.profiles=ollama
+```
+
+`application-ollama.yml` 默认使用：
+
+- Ollama 模型：`bge-m3:latest`
+- Ollama embedding 地址：`http://localhost:11434/v1`
+- Easysearch 索引：`spring-ai-easysearch-demo-ollama-bge-m3`
+- 向量维度：`1024`
+
+我本地实测：
+
+- `curl http://localhost:11434/api/embed ... "model":"bge-m3:latest"` 返回向量长度 `1024`
+- `curl http://localhost:11434/v1/embeddings ... "model":"bge-m3:latest"` 返回向量长度也是 `1024`
+
 注意：profile 名称必须精确写成 `dashscope`，不要误写成 `dashscop` 或其他变体，否则
 `application-dashscope.yml` 不会生效，启动时会出现 OpenAI credential 相关报错。
 
@@ -274,9 +303,16 @@ EASYSEARCH_PORT=9201 \
 
 ## 启动时自动演示
 
-启用 `dashscope` profile 后，应用启动时会自动执行：
+应用启动时都会自动执行一组 `VectorStore.add(...)` + `VectorStore.similaritySearch(...)` 演示：
 
-1. 使用阿里云 DashScope `text-embedding-v4` 把 6 条新闻标题向量化。
+- 默认 profile：使用 `StubEmbeddingModel`，只验证链路，不代表真实语义效果
+- `dashscope` profile：使用 DashScope `text-embedding-v4`
+- `ollama` profile：使用本地 Ollama `bge-m3:latest`
+
+其中启用 `dashscope` 或 `ollama` profile 时，会自动执行：
+
+1. 使用当前 profile 对应的真实 `EmbeddingModel` 把 6 条新闻标题向量化
+   （`dashscope` = DashScope `text-embedding-v4`，`ollama` = Ollama `bge-m3:latest`）。
 2. 通过 `spring-ai-easysearch-vectorstore` 提供的 `EasysearchVectorStore` 写入 Easysearch。
 3. 继续在应用内部调用 `VectorStore.similaritySearch(...)` 做三组查询：
    - `人工智能产业发展`
@@ -343,8 +379,8 @@ curl -G 'http://localhost:8080/api/search' \
 如果返回结果里能看到 `id`、`text`、`score`、`metadata`，说明 REST 层到 Spring AI `VectorStore`
 再到 Easysearch 的交互链路也已经跑通。
 
-> 使用默认 `StubEmbeddingModel` 时，结果只能证明链路可用；启用 `dashscope` profile 后，
-> 文本会通过阿里云 DashScope `text-embedding-v4` 向量化，查询结果才具备真实语义相近性。
+> 使用默认 `StubEmbeddingModel` 时，结果只能证明链路可用；启用 `dashscope` 或 `ollama` profile 后，
+> 文本会通过真实 embedding 模型向量化，查询结果才具备真正的语义相近性。
 
 补充说明：
 
@@ -358,7 +394,7 @@ curl -G 'http://localhost:8080/api/search' \
 本 demo 默认使用 `StubEmbeddingModel`，它基于文本 hash 生成 384 维确定性向量，适合验证接入链路，
 但不具备真实语义能力。
 
-如果要演示真实语义检索，可以启用已内置的 `dashscope` profile，或替换成 Ollama、OpenAI
+如果要演示真实语义检索，可以启用已内置的 `dashscope`、`ollama` profile，或替换成 OpenAI
 等其他 embedding 模型。替换时注意两点：
 
 1. 容器里只能有一个主要的 `EmbeddingModel` Bean，避免自动装配冲突。
@@ -389,15 +425,44 @@ spring:
 
 注意：API Key 通过环境变量 `DASHSCOPE_API_KEY` 注入，不要写死到配置文件或提交到代码仓库。
 
-例如使用 768 维模型时：
+例如使用 1024 维模型时：
 
 ```yaml
 spring:
   ai:
     vectorstore:
       easysearch:
-        dimensions: 768
+        dimensions: 1024
 ```
+
+### Ollama / OpenAI-compatible 示例
+
+`src/main/resources/application-ollama.yml` 继续使用 Spring AI 的 OpenAI starter，对接本地
+Ollama 的 OpenAI-compatible embeddings 接口：
+
+```yaml
+spring:
+  ai:
+    model:
+      embedding: openai
+    openai:
+      api-key: ${OLLAMA_API_KEY:ollama}
+      embedding:
+        base-url: http://localhost:11434/v1
+        options:
+          model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:latest}
+    vectorstore:
+      easysearch:
+        index-name: ${OLLAMA_VECTOR_INDEX:spring-ai-easysearch-demo-ollama-bge-m3}
+        dimensions: ${OLLAMA_EMBEDDING_DIMENSIONS:1024}
+```
+
+说明：
+
+1. 这个 profile 仍然使用 `spring-ai-starter-model-openai`，并没有切到 `spring-ai-starter-model-ollama`
+2. `OLLAMA_API_KEY` 只是占位值，默认写成 `ollama` 即可
+3. `bge-m3:latest` 在你本机实测输出维度是 `1024`，所以 Easysearch 索引维度也必须是 `1024`
+4. 如果你切换到别的 Ollama embedding 模型，务必同时改 `OLLAMA_EMBEDDING_DIMENSIONS`，并且最好换一个新的 `OLLAMA_VECTOR_INDEX` 或删除旧索引后再启动
 
 ## 常见问题
 
