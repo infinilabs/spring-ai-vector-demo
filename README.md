@@ -84,12 +84,79 @@ public class KnowledgeService {
 | --- | --- | --- |
 | POST | `/api/docs` | 写入文档（文本数组，自动 embedding 入库）。body：`{"texts":["..."],"metadata":{"topic":"custom"}}` |
 | GET | `/api/search?q=<关键词>&topK=3&threshold=0.0&metaKey=topic&metaValue=technology` | 语义相似度检索，可带相似度阈值、metadata 过滤；返回 id + 文本 + score + 元数据 |
+| GET | `/api/fulltext/search?q=<关键词>&topK=3&metaKey=topic&metaValue=technology` | Easysearch 原生全文检索，直接对 `content` 做 `match` 查询；可带 metadata 过滤 |
 | DELETE | `/api/docs/{id}` | 按 id 删除文档 |
 
 > 默认 embedding 用 `StubEmbeddingModel`（确定性假向量），**不依赖外部服务/Key，开箱即跑**。
 > 检索结果是 hash 相似（非真实语义）。如需真实语义，可启用 `dashscope` profile，
 > 通过 Spring AI 的 OpenAI-compatible `EmbeddingModel` 调用阿里云 DashScope。
 > 为了演示稳定，小数据集默认使用 `model: exact`；大数据压测或近似召回演示时可改成 `lsh`。
+
+## 全文搜索怎么调
+
+需要区分两件事：
+
+1. `VectorStore.similaritySearch(...)` 是 Spring AI 抽象，负责语义检索。
+2. 全文搜索不是 `VectorStore` 的标准能力，应该直接调用 Easysearch 客户端。
+
+这个 demo 已经提供了一个现成入口：`GET /api/fulltext/search`。它内部没有走
+`VectorStore`，而是直接用 `EasysearchClient` 对 `content` 字段执行 `match` 查询。
+
+Java 示例：
+
+```java
+import java.io.IOException;
+import java.util.List;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.infinilabs.clients.easysearch.EasysearchClient;
+import com.infinilabs.clients.easysearch.core.SearchResponse;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+@Service
+public class NewsFullTextSearchService {
+
+    private final EasysearchClient easysearchClient;
+
+    @Value("${spring.ai.vectorstore.easysearch.index-name}")
+    private String indexName;
+
+    public NewsFullTextSearchService(EasysearchClient easysearchClient) {
+        this.easysearchClient = easysearchClient;
+    }
+
+    public List<String> search(String keyword) throws IOException {
+        SearchResponse<ObjectNode> response = this.easysearchClient.search(s -> s
+                .index(this.indexName)
+                .size(3)
+                .query(q -> q.match(m -> m.field("content").query(keyword))), ObjectNode.class);
+
+        return response.hits().hits().stream()
+                .map(hit -> hit.source().get("content").asText())
+                .toList();
+    }
+}
+```
+
+如果要加业务 metadata 过滤，可以把查询改成 `bool + must(match) + filter(term)`，例如只查
+`metadata.topic=technology`：
+
+```java
+.query(qb -> qb.bool(b -> b
+        .must(m -> m.match(match -> match.field("content").query(keyword)))
+        .filter(f -> f.term(t -> t.field("metadata.topic").value("technology")))))
+```
+
+对应的 HTTP 调用就是：
+
+```bash
+curl -G 'http://localhost:8080/api/fulltext/search' \
+  --data-urlencode 'q=企业智能化' \
+  -d 'topK=3' \
+  -d 'metaKey=topic' \
+  -d 'metaValue=technology'
+```
 
 ## 前置条件
 
@@ -202,6 +269,18 @@ curl -G 'http://localhost:8080/api/search' \
 
 # metadata 过滤：只查 topic=technology 的新闻标题
 curl -G 'http://localhost:8080/api/search' \
+  --data-urlencode 'q=企业智能化' \
+  -d 'topK=3' \
+  -d 'metaKey=topic' \
+  -d 'metaValue=technology'
+
+# 原生全文搜索：直接对 content 做 match 查询
+curl -G 'http://localhost:8080/api/fulltext/search' \
+  --data-urlencode 'q=人工智能产业发展' \
+  -d 'topK=3'
+
+# 原生全文搜索 + metadata 过滤：只查 topic=technology 的全文结果
+curl -G 'http://localhost:8080/api/fulltext/search' \
   --data-urlencode 'q=企业智能化' \
   -d 'topK=3' \
   -d 'metaKey=topic' \
@@ -328,7 +407,7 @@ elasticsearch.api_compatibility_version: "8.19.17"
 ```
 src/main/java/com/infinilabs/esdemo/
 ├── EsDemoApplication.java        # 启动 + 写入样例
-├── VectorStoreController.java    # REST 接口（/api/docs、/api/search）
+├── VectorStoreController.java    # REST 接口（/api/docs、/api/search、/api/fulltext/search）
 ├── EasysearchClientConfig.java   # 自建 EasysearchClient（HC4 trust-all + auth）
 └── StubEmbeddingModel.java       # 确定性 stub embedding（384 维）
 ```
@@ -337,4 +416,5 @@ src/main/java/com/infinilabs/esdemo/
 
 - Easysearch 向量搜索文档：<https://docs.infinilabs.com/easysearch/main/docs/features/vector-search/>
   （`knn_dense_float_vector` 字段 + `knn_nearest_neighbors` 查询）
+- Easysearch Java Client 文档：<https://docs.infinilabs.com/easysearch/main/docs/integrations/clients/java/>
 - Spring AI `VectorStore` 抽象
